@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RSV Analysis UI</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <main class="page">
+    <section class="card">
+      <h1>Анализ изображения</h1>
+      <p class="muted">
+        Выберите вирус, клеточную линию и загрузите одно изображение.
+      </p>
+
+      <form id="analysisForm" class="form">
+        <div class="field">
+          <label for="virusSelect">Вирус</label>
+          <select id="virusSelect" required></select>
+        </div>
+
+        <div class="field">
+          <label for="cellLineSelect">Клеточная линия</label>
+          <select id="cellLineSelect" required></select>
+        </div>
+
+        <div class="field">
+          <label for="imageInput">Изображение</label>
+          <input
+            id="imageInput"
+            type="file"
+            accept=".png,.jpg,.jpeg,.tif,.tiff,image/*"
+            required
+          />
+        </div>
+
+        <button id="submitButton" type="submit">Запустить анализ</button>
+      </form>
+    </section>
+
+    <section class="grid">
+      <article class="card">
+        <h2>Изображение</h2>
+        <div id="previewPlaceholder" class="preview-placeholder">
+          Предпросмотр появится после выбора файла
+        </div>
+        <img
+          id="previewImage"
+          class="preview-image"
+          alt="Предпросмотр загруженного изображения"
+          hidden
+        />
+      </article>
+
+      <article class="card">
+        <h2>Статус</h2>
+        <div id="statusText" class="status-text">Ожидание запуска</div>
+
+        <div class="progress">
+          <div id="progressBar" class="progress-bar"></div>
+        </div>
+
+        <div id="progressText" class="progress-text">0%</div>
+
+        <div id="errorBox" class="message error hidden"></div>
+      </article>
+
+      <article class="card">
+        <h2>Результат</h2>
+
+        <dl class="result-list">
+          <div class="result-row">
+            <dt>Файл</dt>
+            <dd id="resultFilename">—</dd>
+          </div>
+
+          <div class="result-row">
+            <dt>Класс</dt>
+            <dd id="resultClass">—</dd>
+          </div>
+
+          <div class="result-row">
+            <dt>Confidence</dt>
+            <dd id="resultConfidence">—</dd>
+          </div>
+        </dl>
+
+        <div id="warningBox" class="message warning hidden"></div>
+      </article>
+    </section>
+  </main>
+
+  <script src="/config.js"></script>
+  <script src="/app.js" defer></script>
+</body>
+</html>
