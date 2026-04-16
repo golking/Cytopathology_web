@@ -26,11 +26,7 @@ class ClassificationPrediction:
 
 
 def _read_image_any_format(path: str | Path) -> np.ndarray:
-    """
-    Читаем JPG/PNG/TIFF через PIL, переводим в grayscale,
-    потом дублируем в 3 канала, как в твоём локальном коде.
-    Диапазон остаётся 0..255, без нормализации.
-    """
+
     with Image.open(path) as image:
         gray = image.convert("L")
         arr = np.asarray(gray, dtype=np.float32)  # [H, W]
@@ -40,11 +36,6 @@ def _read_image_any_format(path: str | Path) -> np.ndarray:
 
 
 def _pad_to_min_size(img: np.ndarray, min_size: int) -> np.ndarray:
-    """
-    Для обычных картинок используем reflect padding.
-    Для очень маленьких изображений делаем fallback на edge padding,
-    чтобы не падать на ограничениях reflect.
-    """
     h, w = img.shape[:2]
 
     pad_h = max(0, min_size - h)

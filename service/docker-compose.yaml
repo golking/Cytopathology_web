@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: rsv-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: rsv_service
+      POSTGRES_USER: rsv
+      POSTGRES_PASSWORD: rsv
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rsv -d rsv_service"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres_data:

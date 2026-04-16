@@ -1,12 +1,14 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy.orm import Session
 
+from app.db.session import get_db_session
 from app.schemas.catalog import CellLineRef, SupportMatrixResponse, VirusRef
-from app.services.catalog_service import (
-    get_support_matrix,
-    list_cell_lines,
-    list_viruses,
+from app.services.catalog_db_service import (
+    get_support_matrix_from_db,
+    list_cell_lines_from_db,
+    list_viruses_from_db,
 )
 
 router = APIRouter()
@@ -17,8 +19,10 @@ router = APIRouter()
     response_model=list[VirusRef],
     summary="Список поддерживаемых вирусов",
 )
-async def get_viruses() -> list[VirusRef]:
-    return list_viruses()
+async def get_viruses(
+    db: Session = Depends(get_db_session),
+) -> list[VirusRef]:
+    return list_viruses_from_db(db)
 
 
 @router.get(
@@ -31,8 +35,9 @@ async def get_cell_lines(
         str | None,
         Query(description="Опциональный фильтр по коду вируса"),
     ] = None,
+    db: Session = Depends(get_db_session),
 ) -> list[CellLineRef]:
-    return list_cell_lines(virus_code=virus_code)
+    return list_cell_lines_from_db(db, virus_code=virus_code)
 
 
 @router.get(
@@ -40,5 +45,7 @@ async def get_cell_lines(
     response_model=SupportMatrixResponse,
     summary="Матрица поддерживаемых сочетаний",
 )
-async def get_supported_configurations() -> SupportMatrixResponse:
-    return get_support_matrix()
+async def get_supported_configurations(
+    db: Session = Depends(get_db_session),
+) -> SupportMatrixResponse:
+    return get_support_matrix_from_db(db)

@@ -2,182 +2,278 @@ from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from fastapi import UploadFile
+from sqlalchemy import select
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.exceptions import EmptyFilesPayloadError, ImageNotFoundError
-from app.data.asset_store import ASSET_STORE
-from app.data.image_store import IMAGE_STORE
+from app.db.models import AnalysisImage, FileAsset
 from app.domain.enums import AnalysisImageStatus
 from app.schemas.image import AnalysisImageRead
+from app.services.asset_url_service import build_asset_content_url
 from app.services.session_service import (
     ensure_session_is_editable,
-    get_session_image_records,
     get_session_record,
-    refresh_session_counters,
+    sync_session_counters,
 )
 from app.services.storage_service import (
-    delete_stored_asset_file,
-    persist_original_image,
+    build_browser_preview_image,
+    build_original_asset_storage_path,
+    build_preview_asset_storage_path,
+    delete_stored_file_by_storage_path,
     prepare_original_image,
+    write_bytes_to_storage,
 )
 
 
-def _get_image_record_from_session(session: dict, image_id: UUID) -> dict:
-    session_image_ids = set(session.get("image_ids", []))
-    if image_id not in session_image_ids:
-        raise ImageNotFoundError(session_id=session["id"], image_id=image_id)
-
-    image_record = IMAGE_STORE.get(image_id)
-    if image_record is None:
-        raise ImageNotFoundError(session_id=session["id"], image_id=image_id)
-
-    if image_record.get("session_id") != session["id"]:
-        raise ImageNotFoundError(session_id=session["id"], image_id=image_id)
-
-    return image_record
-
-
-def _reindex_session_images(session: dict) -> None:
-    for index, current_image_id in enumerate(session.get("image_ids", []), start=1):
-        image_record = IMAGE_STORE.get(current_image_id)
-        if image_record is not None:
-            image_record["image_index"] = index
-
-
-def _delete_linked_assets(image_record: dict) -> None:
-    asset_fields = (
-        "original_asset_id",
-        "preprocessed_asset_id",
-        "mask_asset_id",
-        "overlay_asset_id",
-        "heatmap_asset_id",
+def _to_analysis_image_read(image: AnalysisImage) -> AnalysisImageRead:
+    return AnalysisImageRead(
+        id=image.public_id,
+        image_index=image.image_index,
+        original_filename=image.original_filename,
+        status=image.status,
+        mime_type=image.mime_type,
+        width=image.width,
+        height=image.height,
+        channels=image.channels,
+        original_url=build_asset_content_url(
+            image.original_asset.public_id if image.original_asset is not None else None
+        ),
+        preview_url=build_asset_content_url(
+            image.preprocessed_asset.public_id if image.preprocessed_asset is not None else None
+        ),
+        error_message=image.error_message,
+        created_at=image.created_at,
     )
 
-    for asset_field in asset_fields:
-        asset_id = image_record.get(asset_field)
-        if asset_id is None:
-            continue
 
-        asset_record = ASSET_STORE.pop(asset_id, None)
-        if asset_record is not None:
-            delete_stored_asset_file(asset_record)
+def _get_session_image_record(
+    db: Session,
+    session_public_id: UUID,
+    image_public_id: UUID,
+    *,
+    load_assets: bool = False,
+    load_result: bool = False,
+) -> AnalysisImage:
+    options = []
 
+    if load_assets:
+        options.extend(
+            [
+                selectinload(AnalysisImage.original_asset),
+                selectinload(AnalysisImage.preprocessed_asset),
+            ]
+        )
 
-def list_analysis_session_images(session_id: UUID) -> list[AnalysisImageRead]:
-    session = get_session_record(session_id)
-    image_records = get_session_image_records(session)
+    if load_result:
+        options.append(selectinload(AnalysisImage.result))
 
-    sorted_records = sorted(
-        image_records,
-        key=lambda item: item["image_index"],
+    stmt = (
+        select(AnalysisImage)
+        .join(AnalysisImage.session)
+        .options(*options)
+        .where(
+            AnalysisImage.public_id == image_public_id,
+            AnalysisImage.session.has(public_id=session_public_id),
+        )
+        .limit(1)
     )
 
-    return [
-        AnalysisImageRead.model_validate(record)
-        for record in sorted_records
-    ]
+    image = db.scalar(stmt)
+    if image is None:
+        raise ImageNotFoundError(
+            session_id=session_public_id,
+            image_id=image_public_id,
+        )
+
+    return image
+
+
+def list_analysis_session_images(
+    db: Session,
+    session_id: UUID,
+) -> list[AnalysisImageRead]:
+    session = get_session_record(db, session_id)
+
+    stmt = (
+        select(AnalysisImage)
+        .options(
+            selectinload(AnalysisImage.original_asset),
+            selectinload(AnalysisImage.preprocessed_asset),
+        )
+        .where(AnalysisImage.session_id == session.id)
+        .order_by(AnalysisImage.image_index, AnalysisImage.id)
+    )
+
+    images = list(db.scalars(stmt).all())
+    return [_to_analysis_image_read(image) for image in images]
 
 
 def get_analysis_session_image(
+    db: Session,
     session_id: UUID,
     image_id: UUID,
 ) -> AnalysisImageRead:
-    session = get_session_record(session_id)
-    image_record = _get_image_record_from_session(session, image_id)
-    return AnalysisImageRead.model_validate(image_record)
-
-
-def delete_analysis_session_image(
-    session_id: UUID,
-    image_id: UUID,
-) -> None:
-    session = get_session_record(session_id)
-    ensure_session_is_editable(session)
-
-    image_record = _get_image_record_from_session(session, image_id)
-
-    _delete_linked_assets(image_record)
-    IMAGE_STORE.pop(image_id, None)
-
-    session["image_ids"] = [
-        current_image_id
-        for current_image_id in session.get("image_ids", [])
-        if current_image_id != image_id
-    ]
-
-    _reindex_session_images(session)
-    refresh_session_counters(session)
+    image = _get_session_image_record(
+        db,
+        session_id,
+        image_id,
+        load_assets=True,
+    )
+    return _to_analysis_image_read(image)
 
 
 async def upload_images_to_session(
+    db: Session,
     session_id: UUID,
     files: list[UploadFile],
 ) -> list[AnalysisImageRead]:
     if not files:
         raise EmptyFilesPayloadError()
 
-    session = get_session_record(session_id)
+    session = get_session_record(db, session_id)
     ensure_session_is_editable(session)
 
     prepared_uploads = []
     for file in files:
         prepared_uploads.append(await prepare_original_image(file))
 
-    created_asset_ids: list[UUID] = []
-    created_image_ids: list[UUID] = []
-    uploaded_images: list[AnalysisImageRead] = []
-
-    existing_image_count = len(session.get("image_ids", []))
+    existing_image_count = session.images_count
+    written_storage_paths: list[str] = []
+    created_images: list[AnalysisImage] = []
 
     try:
         for offset, prepared in enumerate(prepared_uploads, start=1):
-            asset_record = persist_original_image(
-                session_id=session_id,
-                prepared=prepared,
+            preview = build_browser_preview_image(prepared)
+
+            original_asset_public_id = uuid4()
+            preview_asset_public_id = uuid4()
+
+            original_storage_path = build_original_asset_storage_path(
+                original_asset_public_id,
+                prepared,
             )
-            ASSET_STORE[asset_record["id"]] = asset_record
-            created_asset_ids.append(asset_record["id"])
+            preview_storage_path = build_preview_asset_storage_path(
+                preview_asset_public_id
+            )
 
-            image_id = uuid4()
-            image_record = {
-                "id": image_id,
-                "session_id": session_id,
-                "image_index": existing_image_count + offset,
-                "original_filename": prepared.original_filename,
-                "mime_type": prepared.mime_type,
-                "width": prepared.width,
-                "height": prepared.height,
-                "channels": prepared.channels,
-                "checksum": prepared.checksum,
-                "status": AnalysisImageStatus.UPLOADED,
-                "original_asset_id": asset_record["id"],
-                "preprocessed_asset_id": None,
-                "error_message": None,
-                "created_at": datetime.now(timezone.utc),
-            }
+            original_asset = FileAsset(
+                public_id=original_asset_public_id,
+                asset_type="original_image",
+                storage_backend="fs",
+                storage_path=original_storage_path,
+                mime_type=prepared.mime_type,
+                size_bytes=prepared.size_bytes,
+                checksum=prepared.checksum,
+                width=prepared.width,
+                height=prepared.height,
+                expires_at=None,
+                created_at=datetime.now(timezone.utc),
+            )
 
-            IMAGE_STORE[image_id] = image_record
-            created_image_ids.append(image_id)
-            session.setdefault("image_ids", []).append(image_id)
+            preview_asset = FileAsset(
+                public_id=preview_asset_public_id,
+                asset_type="preprocessed_image",
+                storage_backend="fs",
+                storage_path=preview_storage_path,
+                mime_type=preview.mime_type,
+                size_bytes=preview.size_bytes,
+                checksum=preview.checksum,
+                width=preview.width,
+                height=preview.height,
+                expires_at=None,
+                created_at=datetime.now(timezone.utc),
+            )
 
-            uploaded_images.append(AnalysisImageRead.model_validate(image_record))
+            image = AnalysisImage(
+                public_id=uuid4(),
+                session_id=session.id,
+                image_index=existing_image_count + offset,
+                original_filename=prepared.original_filename,
+                mime_type=prepared.mime_type,
+                width=prepared.width,
+                height=prepared.height,
+                channels=prepared.channels,
+                checksum=prepared.checksum,
+                status=AnalysisImageStatus.UPLOADED.value,
+                original_asset=original_asset,
+                preprocessed_asset=preview_asset,
+                error_message=None,
+                created_at=datetime.now(timezone.utc),
+            )
 
-        refresh_session_counters(session)
-        return uploaded_images
+            db.add(image)
+
+            write_bytes_to_storage(original_storage_path, prepared.content)
+            written_storage_paths.append(original_storage_path)
+
+            write_bytes_to_storage(preview_storage_path, preview.content)
+            written_storage_paths.append(preview_storage_path)
+
+            created_images.append(image)
+
+        sync_session_counters(db, session)
+        db.commit()
+
+        return [_to_analysis_image_read(image) for image in created_images]
 
     except Exception:
-        for image_id in created_image_ids:
-            IMAGE_STORE.pop(image_id, None)
+        db.rollback()
 
-        session["image_ids"] = [
-            image_id
-            for image_id in session.get("image_ids", [])
-            if image_id not in created_image_ids
-        ]
+        for storage_path in written_storage_paths:
+            delete_stored_file_by_storage_path(storage_path)
 
-        for asset_id in created_asset_ids:
-            asset_record = ASSET_STORE.pop(asset_id, None)
-            if asset_record is not None:
-                delete_stored_asset_file(asset_record)
-
-        refresh_session_counters(session)
         raise
+
+
+def delete_analysis_session_image(
+    db: Session,
+    session_id: UUID,
+    image_id: UUID,
+) -> None:
+    session = get_session_record(db, session_id)
+    ensure_session_is_editable(session)
+
+    image = _get_session_image_record(
+        db,
+        session_id,
+        image_id,
+        load_assets=True,
+        load_result=True,
+    )
+
+    storage_paths_to_delete: list[str] = []
+
+    if image.original_asset is not None:
+        storage_paths_to_delete.append(image.original_asset.storage_path)
+
+    if image.preprocessed_asset is not None:
+        storage_paths_to_delete.append(image.preprocessed_asset.storage_path)
+
+    original_asset = image.original_asset
+    preprocessed_asset = image.preprocessed_asset
+
+    db.delete(image)
+    db.flush()
+
+    if original_asset is not None:
+        db.delete(original_asset)
+
+    if preprocessed_asset is not None:
+        db.delete(preprocessed_asset)
+
+    remaining_images = list(
+        db.scalars(
+            select(AnalysisImage)
+            .where(AnalysisImage.session_id == session.id)
+            .order_by(AnalysisImage.image_index, AnalysisImage.id)
+        ).all()
+    )
+
+    for index, item in enumerate(remaining_images, start=1):
+        item.image_index = index
+
+    sync_session_counters(db, session)
+    db.commit()
+
+    for storage_path in storage_paths_to_delete:
+        delete_stored_file_by_storage_path(storage_path)

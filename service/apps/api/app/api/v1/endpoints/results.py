@@ -1,7 +1,9 @@
 from uuid import UUID
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
 
+from app.db.session import get_db_session
 from app.schemas.errors import ErrorResponse
 from app.schemas.result import AnalysisSessionResultsResponse
 from app.services.result_service import get_analysis_session_results
@@ -19,5 +21,9 @@ router = APIRouter()
 )
 async def get_session_results(
     sessionId: UUID,
+    db: Session = Depends(get_db_session),
 ) -> AnalysisSessionResultsResponse:
-    return get_analysis_session_results(session_id=sessionId)
+    return get_analysis_session_results(
+        db=db,
+        session_id=sessionId,
+    )

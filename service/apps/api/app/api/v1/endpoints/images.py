@@ -1,8 +1,10 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, File, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, Response, UploadFile, status
+from sqlalchemy.orm import Session
 
+from app.db.session import get_db_session
 from app.schemas.errors import ErrorResponse
 from app.schemas.image import AnalysisImageRead
 from app.services.image_service import (
@@ -23,8 +25,14 @@ router = APIRouter()
         404: {"model": ErrorResponse, "description": "Сеанс не найден"},
     },
 )
-async def get_session_images(sessionId: UUID) -> list[AnalysisImageRead]:
-    return list_analysis_session_images(session_id=sessionId)
+async def get_session_images(
+    sessionId: UUID,
+    db: Session = Depends(get_db_session),
+) -> list[AnalysisImageRead]:
+    return list_analysis_session_images(
+        db=db,
+        session_id=sessionId,
+    )
 
 
 @router.get(
@@ -38,8 +46,10 @@ async def get_session_images(sessionId: UUID) -> list[AnalysisImageRead]:
 async def get_session_image(
     sessionId: UUID,
     imageId: UUID,
+    db: Session = Depends(get_db_session),
 ) -> AnalysisImageRead:
     return get_analysis_session_image(
+        db=db,
         session_id=sessionId,
         image_id=imageId,
     )
@@ -58,8 +68,10 @@ async def get_session_image(
 async def delete_session_image(
     sessionId: UUID,
     imageId: UUID,
+    db: Session = Depends(get_db_session),
 ) -> Response:
     delete_analysis_session_image(
+        db=db,
         session_id=sessionId,
         image_id=imageId,
     )
@@ -86,5 +98,10 @@ async def upload_session_images(
             description="Один или несколько файлов изображений",
         ),
     ],
+    db: Session = Depends(get_db_session),
 ) -> list[AnalysisImageRead]:
-    return await upload_images_to_session(session_id=sessionId, files=files)
+    return await upload_images_to_session(
+        db=db,
+        session_id=sessionId,
+        files=files,
+    )

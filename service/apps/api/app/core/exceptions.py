@@ -144,3 +144,12 @@ class EmptyFilesPayloadError(AppError):
             message="Нужно передать хотя бы один файл изображения.",
             details={"field": "files[]"},
         )
+        
+class AssetNotFoundError(AppError):
+    def __init__(self, asset_id: UUID) -> None:
+        super().__init__(
+            status_code=404,
+            code="asset_not_found",
+            message="Артефакт не найден.",
+            details={"asset_id": str(asset_id)},
+        )

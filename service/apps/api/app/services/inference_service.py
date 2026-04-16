@@ -1,31 +1,35 @@
-from app.data.asset_store import ASSET_STORE
+from app.db.models import AnalysisImage, AnalysisSession
 from app.ml.classifier import predict_multicrop_from_path
-from app.services.catalog_service import get_profile_record_by_key
+from app.services.storage_service import resolve_storage_absolute_path
 
 
-def run_classification_inference(session: dict, image_record: dict) -> dict:
-    profile_record = get_profile_record_by_key(session["profile_key"])
-    if profile_record is None:
+def run_classification_inference(
+    session: AnalysisSession,
+    image_record: AnalysisImage,
+) -> dict:
+    if session.inference_profile is None:
+        raise RuntimeError("Inference profile is not attached to the analysis session.")
+
+    classifier_model = session.inference_profile.classifier_model
+    if classifier_model is None:
         raise RuntimeError(
-            f"Profile '{session['profile_key']}' was not found."
+            f"Profile '{session.inference_profile.profile_key}' does not define classifier model."
         )
 
-    model_key = profile_record.get("classifier_model_key")
-    if not model_key:
+    if image_record.original_asset is None:
         raise RuntimeError(
-            f"Profile '{session['profile_key']}' does not define classifier_model_key."
+            f"Original asset for image '{image_record.public_id}' was not found."
         )
 
-    original_asset_id = image_record.get("original_asset_id")
-    asset_record = ASSET_STORE.get(original_asset_id)
-    if asset_record is None:
+    image_path = resolve_storage_absolute_path(image_record.original_asset.storage_path)
+    if not image_path.exists():
         raise RuntimeError(
-            f"Original asset '{original_asset_id}' was not found."
+            f"Original image file does not exist on storage: {image_path}"
         )
 
     prediction = predict_multicrop_from_path(
-        model_key=model_key,
-        image_path=asset_record["absolute_path"],
+        model_key=classifier_model.model_key,
+        image_path=image_path,
     )
 
     warnings: list[str] = []
@@ -33,13 +37,15 @@ def run_classification_inference(session: dict, image_record: dict) -> dict:
         warnings.append("low_confidence")
 
     return {
+        "classifier_model_id": classifier_model.id,
         "predicted_time_class": prediction.predicted_class,
         "predicted_time_confidence": prediction.confidence,
         "top2_predictions": prediction.top2_predictions,
         "confidence_flag": prediction.confidence_flag,
         "warnings": warnings,
         "inference_time_ms": prediction.inference_time_ms,
-        "predicted_time_class_index": prediction.predicted_index,
-        "mean_probs": prediction.mean_probs,
-        "model_key": model_key,
+        "metrics": {
+            "mean_probs": prediction.mean_probs,
+            "predicted_class_index": prediction.predicted_index,
+        },
     }

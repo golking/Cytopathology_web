@@ -1,5 +1,6 @@
 from fastapi import APIRouter
 
+from app.api.v1.endpoints.assets import router as assets_router
 from app.api.v1.endpoints.catalog import router as catalog_router
 from app.api.v1.endpoints.health import router as health_router
 from app.api.v1.endpoints.images import router as images_router
@@ -12,3 +13,4 @@ router.include_router(catalog_router, tags=["catalog"])
 router.include_router(sessions_router, tags=["analysis-sessions"])
 router.include_router(images_router, tags=["analysis-images"])
 router.include_router(results_router, tags=["analysis-results"])
+router.include_router(assets_router, tags=["assets"])

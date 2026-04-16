@@ -66,3 +66,25 @@ class AnalysisSessionStartResponse(BaseModel):
     id: UUID
     status: AnalysisSessionStatus
     queued_at: datetime
+    
+class AnalysisSessionListItem(BaseModel):
+    id: UUID
+    status: AnalysisSessionStatus
+    virus: VirusRef
+    cell_line: CellLineRef
+    images_count: int = Field(..., ge=0)
+    completed_images_count: int = Field(..., ge=0)
+    failed_images_count: int = Field(..., ge=0)
+    notes: str | None = None
+    error_message: str | None = None
+    created_at: datetime
+    queued_at: datetime | None = None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+
+
+class AnalysisSessionsListResponse(BaseModel):
+    total: int = Field(..., ge=0)
+    limit: int = Field(..., ge=1)
+    offset: int = Field(..., ge=0)
+    items: list[AnalysisSessionListItem]

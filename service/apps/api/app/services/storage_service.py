@@ -1,10 +1,9 @@
+import hashlib
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
-from hashlib import sha256
 from io import BytesIO
 from pathlib import Path, PurePath
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from fastapi import UploadFile
 from PIL import Image, UnidentifiedImageError
@@ -37,6 +36,17 @@ class PreparedImageUpload:
     width: int
     height: int
     channels: int
+    content: bytes
+
+
+@dataclass(slots=True)
+class PreparedBrowserPreview:
+    suffix: str
+    mime_type: str
+    size_bytes: int
+    checksum: str
+    width: int
+    height: int
     content: bytes
 
 
@@ -74,13 +84,15 @@ async def prepare_original_image(upload: UploadFile) -> PreparedImageUpload:
     except (UnidentifiedImageError, OSError) as exc:
         raise InvalidImageFileError(original_filename) from exc
 
+    checksum = hashlib.sha256(content).hexdigest()
+
     return PreparedImageUpload(
         original_filename=original_filename,
         safe_stem=_sanitize_stem(original_filename),
         suffix=FORMAT_TO_EXTENSION[detected_format],
         mime_type=FORMAT_TO_MIME[detected_format],
         size_bytes=len(content),
-        checksum=sha256(content).hexdigest(),
+        checksum=checksum,
         width=width,
         height=height,
         channels=channels,
@@ -88,34 +100,59 @@ async def prepare_original_image(upload: UploadFile) -> PreparedImageUpload:
     )
 
 
-def persist_original_image(session_id: UUID, prepared: PreparedImageUpload) -> dict:
-    asset_id = uuid4()
-    relative_path = (
-        Path("originals")
-        / str(session_id)
-        / f"{asset_id}_{prepared.safe_stem}{prepared.suffix}"
+def build_browser_preview_image(
+    prepared: PreparedImageUpload,
+) -> PreparedBrowserPreview:
+    """
+    Формируем browser-friendly PNG для <img> в UI.
+    Оригинальный файл не меняем и сохраняем отдельно как есть.
+    """
+    with Image.open(BytesIO(prepared.content)) as image:
+        preview_image = image.convert("RGB")
+
+        output = BytesIO()
+        preview_image.save(output, format="PNG")
+        preview_bytes = output.getvalue()
+
+        width, height = preview_image.size
+
+    checksum = hashlib.sha256(preview_bytes).hexdigest()
+
+    return PreparedBrowserPreview(
+        suffix=".png",
+        mime_type="image/png",
+        size_bytes=len(preview_bytes),
+        checksum=checksum,
+        width=width,
+        height=height,
+        content=preview_bytes,
     )
-    absolute_path = settings.storage_root / relative_path
+
+
+def build_original_asset_storage_path(
+    asset_public_id: UUID,
+    prepared: PreparedImageUpload,
+) -> str:
+    return (Path("originals") / f"{asset_public_id}{prepared.suffix}").as_posix()
+
+
+def build_preview_asset_storage_path(
+    asset_public_id: UUID,
+) -> str:
+    return (Path("previews") / f"{asset_public_id}.png").as_posix()
+
+
+def resolve_storage_absolute_path(storage_path: str) -> Path:
+    return settings.storage_root / storage_path
+
+
+def write_bytes_to_storage(storage_path: str, content: bytes) -> Path:
+    absolute_path = resolve_storage_absolute_path(storage_path)
     absolute_path.parent.mkdir(parents=True, exist_ok=True)
-    absolute_path.write_bytes(prepared.content)
-
-    created_at = datetime.now(timezone.utc)
-
-    return {
-        "id": asset_id,
-        "asset_type": "original_image",
-        "storage_backend": "fs",
-        "storage_path": relative_path.as_posix(),
-        "absolute_path": str(absolute_path),
-        "mime_type": prepared.mime_type,
-        "size_bytes": prepared.size_bytes,
-        "checksum": prepared.checksum,
-        "width": prepared.width,
-        "height": prepared.height,
-        "created_at": created_at,
-    }
+    absolute_path.write_bytes(content)
+    return absolute_path
 
 
-def delete_stored_asset_file(asset_record: dict) -> None:
-    absolute_path = Path(asset_record["absolute_path"])
+def delete_stored_file_by_storage_path(storage_path: str) -> None:
+    absolute_path = resolve_storage_absolute_path(storage_path)
     absolute_path.unlink(missing_ok=True)

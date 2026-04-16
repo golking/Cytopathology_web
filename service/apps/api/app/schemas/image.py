@@ -15,5 +15,7 @@ class AnalysisImageRead(BaseModel):
     width: int | None = Field(default=None, gt=0)
     height: int | None = Field(default=None, gt=0)
     channels: int | None = Field(default=None, ge=1, le=4)
+    original_url: str | None = None
+    preview_url: str | None = None
     error_message: str | None = None
     created_at: datetime

@@ -13,6 +13,7 @@ class AnalysisSessionStatus(str, Enum):
     PROCESSING = "processing"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class AnalysisImageStatus(str, Enum):

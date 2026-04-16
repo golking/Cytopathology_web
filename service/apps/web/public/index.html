@@ -9,9 +9,9 @@
 <body>
   <main class="page">
     <section class="card">
-      <h1>Анализ изображения</h1>
+      <h1>Анализ изображений</h1>
       <p class="muted">
-        Выберите вирус, клеточную линию и загрузите одно изображение.
+        Выберите вирус, клеточную линию и загрузите одно или несколько изображений.
       </p>
 
       <form id="analysisForm" class="form">
@@ -26,11 +26,12 @@
         </div>
 
         <div class="field">
-          <label for="imageInput">Изображение</label>
+          <label for="imageInput">Изображения</label>
           <input
             id="imageInput"
             type="file"
             accept=".png,.jpg,.jpeg,.tif,.tiff,image/*"
+            multiple
             required
           />
         </div>
@@ -40,54 +41,89 @@
     </section>
 
     <section class="grid">
-      <article class="card">
-        <h2>Изображение</h2>
-        <div id="previewPlaceholder" class="preview-placeholder">
-          Предпросмотр появится после выбора файла
-        </div>
-        <img
-          id="previewImage"
-          class="preview-image"
-          alt="Предпросмотр загруженного изображения"
-          hidden
-        />
-      </article>
+      <aside class="sidebar">
+        <article class="card status-card">
+          <h2>Статус</h2>
 
-      <article class="card">
-        <h2>Статус</h2>
-        <div id="statusText" class="status-text">Ожидание запуска</div>
+          <div id="statusText" class="status-text">Ожидание запуска</div>
 
-        <div class="progress">
-          <div id="progressBar" class="progress-bar"></div>
-        </div>
-
-        <div id="progressText" class="progress-text">0%</div>
-
-        <div id="errorBox" class="message error hidden"></div>
-      </article>
-
-      <article class="card">
-        <h2>Результат</h2>
-
-        <dl class="result-list">
-          <div class="result-row">
-            <dt>Файл</dt>
-            <dd id="resultFilename">—</dd>
+          <div class="progress">
+            <div id="progressBar" class="progress-bar"></div>
           </div>
 
-          <div class="result-row">
-            <dt>Класс</dt>
-            <dd id="resultClass">—</dd>
+          <div id="progressText" class="progress-text">0%</div>
+
+          <div id="errorBox" class="message error hidden"></div>
+          <div id="warningBox" class="message warning hidden"></div>
+        </article>
+
+        <article class="card history-card">
+          <div class="history-header">
+            <h2>История запусков</h2>
+            <button
+              id="refreshHistoryButton"
+              class="secondary-button"
+              type="button"
+            >
+              Обновить
+            </button>
           </div>
 
-          <div class="result-row">
-            <dt>Confidence</dt>
-            <dd id="resultConfidence">—</dd>
-          </div>
-        </dl>
+          <p class="muted history-note">
+          </p>
 
-        <div id="warningBox" class="message warning hidden"></div>
-      </article>
+          <div id="historyEmpty" class="history-empty">
+          </div>
+
+          <div id="historyList" class="history-list"></div>
+        </article>
+      </aside>
+
+      <section class="content-column">
+        <article class="card results-card">
+          <h2>Сводка</h2>
+
+          <section class="summary-block">
+            <div class="summary-grid">
+              <div class="summary-item">
+                <div class="summary-label">Всего</div>
+                <div id="summaryTotal" class="summary-value">0</div>
+              </div>
+
+              <div class="summary-item">
+                <div class="summary-label">Успешно</div>
+                <div id="summaryCompleted" class="summary-value">0</div>
+              </div>
+
+              <div class="summary-item">
+                <div class="summary-label">С ошибкой</div>
+                <div id="summaryFailed" class="summary-value">0</div>
+              </div>
+
+              <div class="summary-item">
+                <div class="summary-label">В работе</div>
+                <div id="summaryPending" class="summary-value">0</div>
+              </div>
+            </div>
+
+            <div class="class-summary">
+              <div class="summary-subtitle">Распределение по классам</div>
+              <div id="classSummaryEmpty" class="class-summary-empty">
+                Появится после первых предсказаний
+              </div>
+              <div id="classSummaryList" class="class-summary-list"></div>
+            </div>
+          </section>
+
+          <h2>Файлы и результаты</h2>
+
+          <div id="resultsEmpty" class="preview-placeholder">
+            Список изображений появится после выбора файлов или открытия сеанса из истории
+          </div>
+
+          <div id="resultsList" class="results-grid"></div>
+        </article>
+      </section>
     </section>
   </main>
 

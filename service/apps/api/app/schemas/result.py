@@ -23,6 +23,8 @@ class AnalysisImageResultRead(BaseModel):
     image_index: int = Field(..., ge=1)
     original_filename: str
     status: AnalysisImageStatus
+    original_url: str | None = None
+    preview_url: str | None = None
     time_classification: TimeClassificationResult | None = None
     warnings: list[str] = Field(default_factory=list)
     error_message: str | None = None
